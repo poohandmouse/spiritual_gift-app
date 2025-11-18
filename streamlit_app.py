@@ -160,26 +160,41 @@ if not st.session_state.show_results:
             st.write(f"### Question {st.session_state.current_question} / 200")
             
             # Pre-populate with previous answer if available
-            # Note: St.number_input defaults to min_value (0) if value is None, 
-            # but we keep it here to re-display previous scores accurately.
             default_value = st.session_state.answers[st.session_state.current_question] if st.session_state.answers[st.session_state.current_question] is not None else 0
             
             ans = st.number_input(
                 "Select your score (0 to 5):",
                 min_value=0, max_value=5, step=1,
                 # Setting value=None for new questions can be tricky with min_value=0, 
-                # so we will rely on keyboard focus and the user typing over the '0'.
+                # but we will rely on keyboard focus and the user typing over the '0'.
                 value=default_value,
                 key=f"q_{st.session_state.current_question}",
                 help="Type the number (0-5) and press Enter to submit."
+            )
+
+            # --- FIX: Injecting JavaScript to return focus and select content ---
+            # This script runs every time the page loads, forcing the cursor to the number input field.
+            st.markdown(
+                f"""
+                <script>
+                    (function() {{
+                        // Target the input element by its type (number) as it is the only one in the form.
+                        const inputElement = document.querySelector('input[type="number"]');
+                        if (inputElement) {{
+                            inputElement.focus();
+                            // Selects the text, allowing the user to type immediately to overwrite '0'.
+                            inputElement.select(); 
+                        }}
+                    }})();
+                </script>
+                """,
+                unsafe_allow_html=True
             )
             
             submitted = st.form_submit_button("Submit Score and Go to Next Question")
 
         if submitted:
-            # --- CRITICAL FIX: Input Validation ---
-            # St.number_input max_value only restricts the buttons, not direct keyboard entry.
-            # We must validate the submitted value here.
+            # --- VALIDATION: CRITICAL FIX for scores > 5 (e.g., entering '90') ---
             if 0 <= ans <= 5:
                 # Check if this question was already answered (for counting correctly)
                 if st.session_state.answers[st.session_state.current_question] is None:
@@ -189,6 +204,7 @@ if not st.session_state.show_results:
                 st.session_state.current_question += 1
                 st.rerun() # Refresh to next question
             else:
+                # If validation fails, show error and DO NOT rerun (stay on the same question)
                 st.error("Invalid score entered. Please enter a value between 0 and 5.")
             
         # Progress Bar
@@ -219,7 +235,6 @@ else:
     percent = percent_estimates.get(top_gift, 0)
     message = encouragement_messages.get(top_gift, "No message found.")
 
-    # --- FIX: Changed st.header to st.subheader for better visual hierarchy/alignment ---
     st.subheader("🎉 Your Spiritual Gifts Assessment Results 🎉")
     st.markdown("---")
 

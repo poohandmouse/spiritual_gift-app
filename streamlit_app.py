@@ -159,14 +159,12 @@ if not st.session_state.show_results:
         with st.form("question_form"):
             st.write(f"### Question {st.session_state.current_question} / 200")
             
-            # Pre-populate with previous answer if available
+            # Reverting back to st.number_input for fast keyboard entry
             default_value = st.session_state.answers[st.session_state.current_question] if st.session_state.answers[st.session_state.current_question] is not None else 0
             
             ans = st.number_input(
                 "Select your score (0 to 5):",
                 min_value=0, max_value=5, step=1,
-                # Setting value=None for new questions can be tricky with min_value=0, 
-                # but we will rely on keyboard focus and the user typing over the '0'.
                 value=default_value,
                 key=f"q_{st.session_state.current_question}",
                 help="Type the number (0-5) and press Enter to submit."
@@ -175,7 +173,7 @@ if not st.session_state.show_results:
             submitted = st.form_submit_button("Submit Score and Go to Next Question")
 
         if submitted:
-            # --- VALIDATION: CRITICAL FIX for scores > 5 (e.g., entering '90') ---
+            # --- VALIDATION: Re-adding robust validation for scores > 5 (or < 0) ---
             if 0 <= ans <= 5:
                 # Check if this question was already answered (for counting correctly)
                 if st.session_state.answers[st.session_state.current_question] is None:
@@ -190,8 +188,7 @@ if not st.session_state.show_results:
                 # We do not rerun here, forcing the user to correct the input.
 
         # --- FIX: Injecting robust JavaScript to return focus and select content ---
-        # This script runs every time the page loads, ensuring the number input field is focused
-        # and its content (the '0') is selected for immediate overwrite.
+        # This uses the fully escaped JavaScript to prevent the Python f-string error.
         st.markdown(
             f"""
             <script>
@@ -199,7 +196,6 @@ if not st.session_state.show_results:
                     // Use a small delay to ensure the page components have finished rendering
                     setTimeout(() => {{
                         // Target the input element by its type and its current question key (more specific targeting)
-                        // Streamlit assigns the key as the data-testid for the input container.
                         const currentKey = "q_{st.session_state.current_question}";
                         const container = document.querySelector(`[data-testid*="stNumberInput"]`);
                         
@@ -306,10 +302,13 @@ else:
     q = st.number_input("Question number to edit (1-200)", min_value=1, max_value=200, value=1)
     # Default value shows current score for the selected question
     current_score = st.session_state.answers[q] if st.session_state.answers[q] is not None else 0
+    
+    # NOTE: Using a number_input here too, which automatically validates min/max on its widget buttons.
     new_ans = st.number_input(f"Current Score for Q{q} is {current_score}. New Score (0-5):", 0, 5, value=current_score)
     
     if st.button("Update Score and Recalculate"):
-        if 0 <= new_ans <= 5: # Validation for edit answer as well
+        # Explicit check for the edit field too
+        if 0 <= new_ans <= 5: 
             if st.session_state.answers[q] is None:
                 # If the original was None, we count it now
                 st.session_state.answered_count += 1
@@ -320,6 +319,7 @@ else:
             st.rerun()
         else:
             st.error("Invalid score entered. Please enter a value between 0 and 5.")
+
         
     # Export Results Text File
     st.markdown("---")

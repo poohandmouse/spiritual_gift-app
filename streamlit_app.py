@@ -86,9 +86,12 @@ def load_progress(uploaded_file):
             new_answers = [None] * 201
             for q, ans in saved_data.items():
                 q_num = int(q)
+                # Validation check upon loading data
                 if 1 <= q_num <= 200 and 0 <= int(ans) <= 5:
                     new_answers[q_num] = int(ans)
                     newly_answered += 1
+                else:
+                    st.warning(f"Skipped invalid score '{ans}' for question {q_num}.")
             
             st.session_state.answers = new_answers
             st.session_state.answered_count = newly_answered
@@ -157,33 +160,36 @@ if not st.session_state.show_results:
             st.write(f"### Question {st.session_state.current_question} / 200")
             
             # Pre-populate with previous answer if available
+            # Note: St.number_input defaults to min_value (0) if value is None, 
+            # but we keep it here to re-display previous scores accurately.
             default_value = st.session_state.answers[st.session_state.current_question] if st.session_state.answers[st.session_state.current_question] is not None else 0
             
-            # --- FIX: Changed st.slider to st.number_input for better keyboard/Enter key support ---
             ans = st.number_input(
                 "Select your score (0 to 5):",
                 min_value=0, max_value=5, step=1,
+                # Setting value=None for new questions can be tricky with min_value=0, 
+                # so we will rely on keyboard focus and the user typing over the '0'.
                 value=default_value,
-                # Key makes the input element unique and more predictable
                 key=f"q_{st.session_state.current_question}",
-                # Set the number input width to be narrower
-                help="Type the number and press Enter to submit."
+                help="Type the number (0-5) and press Enter to submit."
             )
             
-            # Explicitly force focus onto the number input box after a submission
-            # This requires a small HTML component, which we can't add directly, 
-            # but the number_input itself is much more responsive to Enter key submission.
-
             submitted = st.form_submit_button("Submit Score and Go to Next Question")
 
         if submitted:
-            # Check if this question was already answered (for counting correctly)
-            if st.session_state.answers[st.session_state.current_question] is None:
-                st.session_state.answered_count += 1
-            
-            st.session_state.answers[st.session_state.current_question] = ans
-            st.session_state.current_question += 1
-            st.rerun() # Refresh to next question
+            # --- CRITICAL FIX: Input Validation ---
+            # St.number_input max_value only restricts the buttons, not direct keyboard entry.
+            # We must validate the submitted value here.
+            if 0 <= ans <= 5:
+                # Check if this question was already answered (for counting correctly)
+                if st.session_state.answers[st.session_state.current_question] is None:
+                    st.session_state.answered_count += 1
+                
+                st.session_state.answers[st.session_state.current_question] = ans
+                st.session_state.current_question += 1
+                st.rerun() # Refresh to next question
+            else:
+                st.error("Invalid score entered. Please enter a value between 0 and 5.")
             
         # Progress Bar
         st.markdown("---")
@@ -213,7 +219,8 @@ else:
     percent = percent_estimates.get(top_gift, 0)
     message = encouragement_messages.get(top_gift, "No message found.")
 
-    st.header("🎉 Your Spiritual Gifts Assessment Results 🎉")
+    # --- FIX: Changed st.header to st.subheader for better visual hierarchy/alignment ---
+    st.subheader("🎉 Your Spiritual Gifts Assessment Results 🎉")
     st.markdown("---")
 
     # Top Gift Highlight
@@ -222,7 +229,7 @@ else:
         <div style='background-color: #E6F2FF; padding: 20px; border-radius: 10px; border: 2px solid #007BFF; text-align: center;'>
             <h4 style='color: #0056b3; margin-bottom: 5px;'>TOP GIFT IDENTIFIED</h4>
             <h1 style='color: #007BFF; font-size: 36px; margin-top: 0px;'>{top_gift}</h1>
-            <p style='color: #343A40; margin-top: 10px;'>Score: <b>{top_score}</b> (Estimated <b>{percent}%</b> Rarity)</p>
+            <p style='color: #343A40; margin-top: 10px;'>Score: <b>{top_score}</b> (Estimated Rarity: <b>{percent}%</b> of Christians with this primary gift)</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -276,19 +283,22 @@ else:
     new_ans = st.number_input(f"Current Score for Q{q} is {current_score}. New Score (0-5):", 0, 5, value=current_score)
     
     if st.button("Update Score and Recalculate"):
-        if st.session_state.answers[q] is None:
-            # If the original was None, we count it now
-            st.session_state.answered_count += 1
-            
-        st.session_state.answers[q] = new_ans
-        st.session_state.show_results = True # Recalculate immediately
-        st.toast(f"Question {q} updated!")
-        st.rerun()
+        if 0 <= new_ans <= 5: # Validation for edit answer as well
+            if st.session_state.answers[q] is None:
+                # If the original was None, we count it now
+                st.session_state.answered_count += 1
+                
+            st.session_state.answers[q] = new_ans
+            st.session_state.show_results = True # Recalculate immediately
+            st.toast(f"Question {q} updated!")
+            st.rerun()
+        else:
+            st.error("Invalid score entered. Please enter a value between 0 and 5.")
         
     # Export Results Text File
     st.markdown("---")
     export_content = "--- Spiritual Gifts Assessment Results ---\n\n"
-    export_content += f"TOP GIFT: {top_gift} (Score: {top_score}, Rarity: {percent}%)\n\n"
+    export_content += f"TOP GIFT: {top_gift} (Score: {top_score}, Rarity: {percent}% of Christians with this primary gift)\n\n"
     export_content += "Your Top 4 Gifts:\n"
     for rank in range(4):
         score, gift = sorted_gifts[rank]

@@ -212,7 +212,7 @@ if not st.session_state.show_results:
                             }}
                         }}
                     }}, 50); // 50ms delay for robustness in Streamlit environment
-                })();
+                }}})(); 
             </script>
             """,
             unsafe_allow_html=True

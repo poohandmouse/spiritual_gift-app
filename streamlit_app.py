@@ -55,9 +55,10 @@ if 'show_results' not in st.session_state:
 
 def compute_row_sums():
     row_sums = [0] * 20
+    # The scoring system is: Q(row_index + 1) is the first question, then + 20 for each subsequent.
     for row in range(20):
         start = row + 1
-        for col in range(10):
+        for col in range(10): # 10 questions per gift
             q_num = start + col * 20
             row_sums[row] += st.session_state.answers[q_num] if st.session_state.answers[q_num] is not None else 0
     return row_sums
@@ -67,89 +68,270 @@ def get_sorted_gifts(row_sums):
 
 def save_progress():
     answered_data = {str(i): st.session_state.answers[i] for i in range(1, 201) if st.session_state.answers[i] is not None}
-    st.download_button(label="Download Progress", data=json.dumps(answered_data), file_name="progress.json", mime="application/json")
+    # This button triggers the download of the file created from the dictionary
+    st.download_button(
+        label="Download Progress (Save File)",
+        data=json.dumps(answered_data, indent=4),
+        file_name="progress.json",
+        mime="application/json"
+    )
 
 def load_progress(uploaded_file):
     if uploaded_file is not None:
-        saved_data = json.load(uploaded_file)
-        for q, ans in saved_data.items():
-            q_num = int(q)
-            st.session_state.answers[q_num] = int(ans)
-        st.session_state.answered_count = sum(1 for a in st.session_state.answers[1:] if a is not None)
-        st.session_state.current_question = 1
-        st.success(f"Loaded {st.session_state.answered_count} answers!")
+        try:
+            saved_data = json.load(uploaded_file)
+            newly_answered = 0
+            
+            # Reset answers based on the loaded data
+            new_answers = [None] * 201
+            for q, ans in saved_data.items():
+                q_num = int(q)
+                # Validation check upon loading data
+                if 1 <= q_num <= 200 and 0 <= int(ans) <= 5:
+                    new_answers[q_num] = int(ans)
+                    newly_answered += 1
+                else:
+                    st.warning(f"Skipped invalid score '{ans}' for question {q_num}.")
+            
+            st.session_state.answers = new_answers
+            st.session_state.answered_count = newly_answered
+            
+            # Find the next unanswered question
+            st.session_state.current_question = 1
+            while st.session_state.current_question <= 200 and st.session_state.answers[st.session_state.current_question] is not None:
+                st.session_state.current_question += 1
+                
+            st.success(f"Loaded {st.session_state.answered_count} answers! Ready for Question {st.session_state.current_question}.")
+            st.session_state.show_results = (st.session_state.current_question > 200)
+            st.rerun()
 
-# Main App
+        except json.JSONDecodeError:
+            st.error("Error loading file. Please ensure it is a valid JSON file.")
+        except Exception as e:
+            st.error(f"An unexpected error occurred: {e}")
+
+# Main App Layout
 st.title("Spiritual Gifts Assessment")
+st.markdown("---")
 
-if not st.session_state.show_results:
-    # Welcome/Start
-    st.subheader("Answer 200 questions (0-5) from your book.")
-    
+if 'show_all' not in st.session_state:
+    st.session_state.show_all = False
+
+# --- Sidebar Controls ---
+with st.sidebar:
+    st.header("App Controls")
+
     # Load Progress
-    uploaded_file = st.file_uploader("Load Progress (JSON)", type="json")
+    st.subheader("Load/Save")
+    uploaded_file = st.file_uploader("Upload Progress (.json file)", type="json")
     if uploaded_file:
         load_progress(uploaded_file)
+    
+    # Save Progress Button
+    save_progress()
+    
+    st.markdown("---")
 
-    # Question Input
+    # Restart Button
+    if st.button("Start Over (Clear All Answers)"):
+        st.session_state.clear()
+        st.session_state.answers = [None] * 201
+        st.session_state.current_question = 1
+        st.session_state.answered_count = 0
+        st.session_state.show_results = False
+        st.success("Assessment cleared. Starting from Question 1.")
+        st.rerun()
+
+# --- Assessment or Results View ---
+
+if not st.session_state.show_results:
+    # --- ASSESSMENT INPUT VIEW ---
+    st.subheader("Answer 200 questions (0-5) based on your assessment book.")
+    st.info("Scores: 0 (Not at all) to 5 (Consistently and strongly)")
+    
+    # Check if we should move to results immediately
     while st.session_state.current_question <= 200 and st.session_state.answers[st.session_state.current_question] is not None:
         st.session_state.current_question += 1
 
     if st.session_state.current_question <= 200:
-        st.write(f"Question {st.session_state.current_question}/200")
-        ans = st.number_input("Enter score (0-5)", min_value=0, max_value=5, step=1)
-        if st.button("Submit"):
-            st.session_state.answers[st.session_state.current_question] = ans
-            st.session_state.answered_count += 1
-            st.session_state.current_question += 1
-            st.rerun()  # Refresh to next question
+        
+        # Input Form
+        with st.form("question_form"):
+            st.write(f"### Question {st.session_state.current_question} / 200")
+            
+            # Pre-populate with previous answer if available
+            default_value = st.session_state.answers[st.session_state.current_question] if st.session_state.answers[st.session_state.current_question] is not None else 0
+            
+            ans = st.number_input(
+                "Select your score (0 to 5):",
+                min_value=0, max_value=5, step=1,
+                # Setting value=None for new questions can be tricky with min_value=0, 
+                # but we will rely on keyboard focus and the user typing over the '0'.
+                value=default_value,
+                key=f"q_{st.session_state.current_question}",
+                help="Type the number (0-5) and press Enter to submit."
+            )
+            
+            submitted = st.form_submit_button("Submit Score and Go to Next Question")
 
-        # Progress
-        st.progress(st.session_state.answered_count / 200)
-        st.write(f"Progress: {st.session_state.answered_count}/200")
+        if submitted:
+            # --- VALIDATION: CRITICAL FIX for scores > 5 (e.g., entering '90') ---
+            if 0 <= ans <= 5:
+                # Check if this question was already answered (for counting correctly)
+                if st.session_state.answers[st.session_state.current_question] is None:
+                    st.session_state.answered_count += 1
+                
+                st.session_state.answers[st.session_state.current_question] = ans
+                st.session_state.current_question += 1
+                st.rerun() # Refresh to next question
+            else:
+                # If validation fails, show error and DO NOT rerun (stay on the same question)
+                st.error("Invalid score entered. Please enter a value between 0 and 5.")
+                # We do not rerun here, forcing the user to correct the input.
 
-        # Save Button
-        if st.button("Save Progress"):
-            save_progress()
+        # --- FIX: Injecting robust JavaScript to return focus and select content ---
+        # This script runs every time the page loads, ensuring the number input field is focused
+        # and its content (the '0') is selected for immediate overwrite.
+        st.markdown(
+            f"""
+            <script>
+                (function() {{
+                    // Use a small delay to ensure the page components have finished rendering
+                    setTimeout(() => {{
+                        // Target the input element by its type and its current question key (more specific targeting)
+                        // Streamlit assigns the key as the data-testid for the input container.
+                        const currentKey = "q_{st.session_state.current_question}";
+                        const container = document.querySelector(`[data-testid*="stNumberInput"]`);
+                        
+                        if (container) {{
+                            const inputElement = container.querySelector('input[type="number"]');
+                            if (inputElement) {{
+                                inputElement.focus();
+                                // Selects the text, allowing the user to type immediately to overwrite '0'.
+                                inputElement.select(); 
+                            }}
+                        }}
+                    }}, 50); // 50ms delay for robustness in Streamlit environment
+                })();
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
+            
+        # Progress Bar
+        st.markdown("---")
+        progress_value = st.session_state.answered_count / 200
+        st.progress(progress_value, text=f"Progress: {st.session_state.answered_count}/200 ({progress_value:.0%})")
+        
     else:
-        st.session_state.show_results = True
-        st.rerun()
+        # Completed all questions, show button to see results
+        if st.session_state.answered_count == 200:
+            st.success("Assessment Complete!")
+            if st.button("View Results"):
+                st.session_state.show_results = True
+                st.rerun()
+        else:
+            # Should only happen if session state is inconsistent, fallback to refresh
+            st.warning("Please submit all questions or reload a full assessment.")
+            if st.button("Attempt to Recalculate"):
+                st.session_state.show_results = True
+                st.rerun()
+
 
 else:
-    # Results
+    # --- RESULTS VIEW ---
     row_sums = compute_row_sums()
     sorted_gifts = get_sorted_gifts(row_sums)
     top_score, top_gift = sorted_gifts[0]
-    percent = percent_estimates[top_gift]
-    message = encouragement_messages[top_gift]
+    percent = percent_estimates.get(top_gift, 0)
+    message = encouragement_messages.get(top_gift, "No message found.")
 
-    st.header("Your Results")
-    st.subheader("Top 4 Gifts")
+    st.subheader("🎉 Your Spiritual Gifts Assessment Results 🎉")
+    st.markdown("---")
+
+    # Top Gift Highlight
+    st.markdown(
+        f"""
+        <div style='background-color: #E6F2FF; padding: 20px; border-radius: 10px; border: 2px solid #007BFF; text-align: center;'>
+            <h4 style='color: #0056b3; margin-bottom: 5px;'>TOP GIFT IDENTIFIED</h4>
+            <h1 style='color: #007BFF; font-size: 36px; margin-top: 0px;'>{top_gift}</h1>
+            <p style='color: #343A40; margin-top: 10px;'>Score: <b>{top_score}</b> (Estimated Rarity: <b>{percent}%</b> of Christians with this primary gift)</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Encouragement
+    st.subheader("Your Encouragement Message")
+    st.info(f"{message}")
+
+    # Top 4 List
+    st.subheader("Your Top 4 Gifts")
+    
+    # Create a nice markdown table for the top 4
+    table_content = "| Rank | Gift | Score |\n| :---: | :--- | :---: |\n"
     for rank in range(4):
         score, gift = sorted_gifts[rank]
-        st.write(f"{rank+1}. {gift}: {score}")
+        table_content += f"| {rank+1} | **{gift}** | {score} |\n"
+    st.markdown(table_content)
+    
+    st.markdown("---")
 
-    st.subheader("Encouragement")
-    st.write(message)
-    st.write(f"Estimated rarity: {percent}%")
+    # Action Buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Show All Gifts Breakdown", use_container_width=True):
+            st.session_state.show_all = not st.session_state.show_all
+            st.rerun()
 
-    # Export (as text)
-    if st.button("Export Results"):
-        export_content = "Spiritual Gifts Assessment Results\n\nTop 4 Gifts:\n"
-        for rank in range(4):
-            score, gift = sorted_gifts[rank]
-            export_content += f"{rank+1}. {gift}: {score}\n"
-        export_content += f"\nEncouragement: {message} (Rarity: {percent}%)\n"
-        st.download_button("Download Results", data=export_content, file_name="results.txt")
+    with col2:
+        if st.button("Back to Assessment", use_container_width=True):
+            st.session_state.show_results = False
+            st.session_state.current_question = 1 # Re-find next question
+            st.rerun()
 
+    # Show All Gifts Expansion
+    if st.session_state.show_all:
+        st.subheader("Full Score Breakdown")
+        
+        # Display all gifts in a structured list
+        for i, (score, gift) in enumerate(sorted_gifts):
+            st.markdown(f"**{i+1}.** {gift} (Score: {score})")
+
+    st.markdown("---")
+    
     # Edit Answer
-    q = st.number_input("Edit Question (1-200)", 1, 200)
-    new_ans = st.number_input("New Score (0-5)", 0, 5)
-    if st.button("Update"):
-        st.session_state.answers[q] = new_ans
-        st.session_state.show_results = False  # Recalculate
-        st.rerun()
-
-    if st.button("Restart"):
-        st.session_state.clear()
-        st.rerun()
+    st.subheader("Edit/Correct an Answer")
+    q = st.number_input("Question number to edit (1-200)", min_value=1, max_value=200, value=1)
+    # Default value shows current score for the selected question
+    current_score = st.session_state.answers[q] if st.session_state.answers[q] is not None else 0
+    new_ans = st.number_input(f"Current Score for Q{q} is {current_score}. New Score (0-5):", 0, 5, value=current_score)
+    
+    if st.button("Update Score and Recalculate"):
+        if 0 <= new_ans <= 5: # Validation for edit answer as well
+            if st.session_state.answers[q] is None:
+                # If the original was None, we count it now
+                st.session_state.answered_count += 1
+                
+            st.session_state.answers[q] = new_ans
+            st.session_state.show_results = True # Recalculate immediately
+            st.toast(f"Question {q} updated!")
+            st.rerun()
+        else:
+            st.error("Invalid score entered. Please enter a value between 0 and 5.")
+        
+    # Export Results Text File
+    st.markdown("---")
+    export_content = "--- Spiritual Gifts Assessment Results ---\n\n"
+    export_content += f"TOP GIFT: {top_gift} (Score: {top_score}, Rarity: {percent}% of Christians with this primary gift)\n\n"
+    export_content += "Your Top 4 Gifts:\n"
+    for rank in range(4):
+        score, gift = sorted_gifts[rank]
+        export_content += f"{rank+1}. {gift} (Score: {score})\n"
+    export_content += f"\nEncouragement Message: {message}\n\n"
+    export_content += "Full Score Breakdown:\n"
+    for score, gift in sorted_gifts:
+        export_content += f"- {gift}: {score}\n"
+        
+    st.download_button("Download Results as TXT", data=export_content, file_name="spiritual_gifts_results.txt")

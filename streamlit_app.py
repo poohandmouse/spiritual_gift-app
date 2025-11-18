@@ -159,7 +159,7 @@ if not st.session_state.show_results:
         with st.form("question_form"):
             st.write(f"### Question {st.session_state.current_question} / 200")
             
-            # Reverting back to st.number_input for fast keyboard entry
+            # Pre-populate with previous answer if available
             default_value = st.session_state.answers[st.session_state.current_question] if st.session_state.answers[st.session_state.current_question] is not None else 0
             
             ans = st.number_input(
@@ -186,30 +186,30 @@ if not st.session_state.show_results:
                 st.rerun() # Refresh to next question
             else:
                 # If validation fails, show a clear error message.
-                st.error(f"Score '{ans}' is invalid. Please enter a value between 0 and 5.")
+                st.error(f"Score '{ans}' is invalid. Please enter a value between 0 and 5. This score was not recorded.")
                 # We do not rerun here, forcing the user to correct the input.
 
-        # --- AUTO-FOCUS FIX: Increasing timeout for better reliability (100ms) ---
+        # --- AUTO-FOCUS FIX: FINAL ATTEMPT FOR MAXIMUM RELIABILITY ---
         st.markdown(
             f"""
             <script>
                 (function() {{
-                    // Use a slightly longer delay (100ms) to ensure all components are rendered
+                    // We must wait longer for Streamlit's rendering pipeline to stabilize.
                     setTimeout(() => {{
-                        // Target the input element by its key container
-                        const currentKey = "q_{st.session_state.current_question}";
-                        const container = document.querySelector(`[data-testid*="stNumberInput"]`);
-                        
-                        if (container) {{
-                            const inputElement = container.querySelector('input[type="number"]');
-                            if (inputElement) {{
+                        // Target the input element by its type and ensure it's within the main form area.
+                        // We target the *last* number input created, which is the current question.
+                        const inputElements = document.querySelectorAll('input[type="number"]');
+                        if (inputElements.length > 0) {{
+                            const inputElement = inputElements[inputElements.length - 1]; // Select the most recently created input
+                            
+                            if (inputElement && document.activeElement !== inputElement) {{
                                 inputElement.focus();
-                                // Selects the text, allowing the user to type immediately to overwrite '0'.
+                                // This is crucial: selects the entire current value (usually '0') so the user can type the new score immediately.
                                 inputElement.select(); 
                             }}
                         }}
-                    }}, 100); // Increased delay to 100ms for stability
-                }}}})(); 
+                    }}, 250); // Increased delay to 250ms for maximum stability across devices
+                }})(); 
             </script>
             """,
             unsafe_allow_html=True
@@ -319,7 +319,7 @@ else:
             st.toast(f"Question {q} updated!")
             st.rerun()
         else:
-            st.error(f"Score '{new_ans}' is invalid. Please enter a value between 0 and 5.")
+            st.error(f"Score '{new_ans}' is invalid. Please enter a value between 0 and 5. This score was not recorded.")
 
         
     # Export Results Text File
